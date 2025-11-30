@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-WEBSIM : Hybrid Fab Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .sim-canvas { background: #1e293b; border-radius: 8px; border: 1px solid #334155; position: relative; overflow: hidden; }
+        .machine { border: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.1); border-radius: 8px; position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.3s; }
+        .machine.bottleneck { border-color: #ef4444; background: rgba(239, 68, 68, 0.2); }
+        .wafer { width: 12px; height: 12px; background: #4ade80; border-radius: 50%; position: absolute; transition: left 0.5s linear, top 0.5s linear; box-shadow: 0 0 5px #4ade80; }
+        .wafer.defect { background: #ef4444; box-shadow: 0 0 5px #ef4444; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-slate-900 border-b border-slate-700 p-4 flex justify-between items-center h-16 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold text-white">W</div>
+            <h1 class="text-xl font-bold tracking-tight">AI-WEBSIM <span class="text-slate-500 text-sm font-normal ml-2">| Fab Process Optimizer</span></h1>
+        </div>
+        <div class="flex gap-4 text-sm text-slate-400">
+            <span>Status: <span class="text-green-400 font-mono">Running (SimPy Backend Emulation)</span></span>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="w-80 bg-slate-800 border-r border-slate-700 p-5 flex flex-col gap-6 overflow-y-auto shrink-0">
+            
+            <div class="bg-slate-900 p-3 rounded border border-slate-600">
+                <h3 class="text-xs font-bold text-blue-400 mb-1 uppercase">LLM Generated Scenario</h3>
+                <p class="text-xs text-slate-300 leading-relaxed">
+                    "반도체 웨이퍼 공정 시뮬레이션을 생성해줘. 공정은 Deposition, Lithography, Etching 순서야. 각 단계별 병목 현상을 확인하고 싶어."
+                </p>
+            </div>
+
+            <hr class="border-slate-700">
+
+            <div>
+                <h2 class="font-bold text-lg mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    Parameter Control
+                </h2>
+                
+                <div class="mb-5">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium">Wafer Input Rate</label>
+                        <span id="val-input" class="text-sm font-mono text-blue-400">1.0s</span>
+                    </div>
+                    <input type="range" id="range-input" min="0.5" max="3.0" step="0.1" value="1.0" class="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    <p class="text-xs text-slate-500 mt-1">투입 간격이 짧을수록 부하 증가</p>
+                </div>
+
+                <div class="mb-5">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium">Process Speed (Global)</label>
+                        <span id="val-speed" class="text-sm font-mono text-blue-400">x1.0</span>
+                    </div>
+                    <input type="range" id="range-speed" min="0.5" max="3.0" step="0.1" value="1.0" class="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    <p class="text-xs text-slate-500 mt-1">장비 처리 속도 계수</p>
+                </div>
+
+                <div class="mb-5">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium">Defect Rate (Etching)</label>
+                        <span id="val-defect" class="text-sm font-mono text-red-400">5%</span>
+                    </div>
+                    <input type="range" id="range-defect" min="0" max="20" step="1" value="5" class="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-red-500">
+                    <p class="text-xs text-slate-500 mt-1">식각 공정 불량 발생 확률</p>
+                </div>
+
+                <button onclick="resetSim()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 px-4 rounded transition border border-slate-500">
+                    Reset Simulation
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col p-5 gap-5 overflow-hidden">
+            
+            <div class="flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-end mb-2">
+                    <h2 class="font-bold text-lg">Real-time Fab Visualization</h2>
+                    <div class="flex gap-4 text-xs font-mono">
+                        <span class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-green-400"></div> Normal Wafer</span>
+                        <span class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-red-500"></div> Defective</span>
+                    </div>
+                </div>
+                <div id="sim-container" class="sim-canvas w-full h-full shadow-inner">
+                    </div>
+            </div>
+
+            <div class="h-48 grid grid-cols-3 gap-5 shrink-0">
+                
+                <div class="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col justify-between">
+                    <h4 class="text-slate-400 text-sm font-semibold">Overall Yield</h4>
+                    <div class="flex items-end gap-2">
+                        <span id="metric-yield" class="text-4xl font-bold text-white">100%</span>
+                        <span class="text-sm text-slate-500 mb-1">efficiency</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-2 rounded-full mt-2 overflow-hidden">
+                        <div id="bar-yield" class="bg-green-500 h-full" style="width: 100%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                    <h4 class="text-slate-400 text-sm font-semibold mb-2">Process Cost / Output</h4>
+                    <div class="relative h-24 w-full">
+                        <canvas id="costChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col justify-between">
+                    <h4 class="text-slate-400 text-sm font-semibold">Throughput (Wafers)</h4>
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <div class="bg-slate-900 p-2 rounded text-center">
+                            <span class="block text-xs text-slate-500">Total Input</span>
+                            <span id="metric-input" class="text-xl font-mono font-bold">0</span>
+                        </div>
+                        <div class="bg-slate-900 p-2 rounded text-center">
+                            <span class="block text-xs text-slate-500">Completed</span>
+                            <span id="metric-completed" class="text-xl font-mono font-bold text-blue-400">0</span>
+                        </div>
+                    </div>
+                    <div class="mt-1 text-xs text-center text-red-400">Defects: <span id="metric-defects">0</span></div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        /* * Simulation Logic 
+         * This script mocks the SimPy behavior described in the prompt.
+         */
+        
+        const container = document.getElementById('sim-container');
+        
+        // Configuration
+        const machines = [
+            { id: 'dep', name: 'Deposition', x: 10, y: 40, width: 20, height: 20, processTime: 2000, queue: 0 },
+            { id: 'litho', name: 'Lithography', x: 40, y: 40, width: 20, height: 20, processTime: 2500, queue: 0 }, // Slower -> Bottleneck
+            { id: 'etch', name: 'Etching', x: 70, y: 40, width: 20, height: 20, processTime: 1800, queue: 0 }
+        ];
+
+        // State
+        let wafers = [];
+        let totalInput = 0;
+        let totalCompleted = 0;
+        let totalDefects = 0;
+        let isRunning = true;
+        let lastSpawnTime = 0;
+        
+        // Parameters from UI
+        let inputRate = 1000; // ms
+        let speedMultiplier = 1.0;
+        let defectRate = 0.05;
+
+        // Chart Setup
+        const ctx = document.getElementById('costChart').getContext('2d');
+        const costChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(10).fill(''),
+                datasets: [{
+                    label: 'Cost ($)',
+                    data: Array(10).fill(0),
+                    borderColor: '#3b82f6',
+                    tension: 0.4,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { display: false, min: 0 }
+                }
+            }
+        });
+
+        // Initialize Machines in DOM
+        function initMachines() {
+            machines.forEach(m => {
+                const div = document.createElement('div');
+                div.className = 'machine';
+                div.style.left = m.x + '%';
+                div.style.top = m.y + '%';
+                div.style.width = m.width + '%';
+                div.style.height = m.height + '%';
+                div.innerHTML = `<span class="text-xs font-bold text-blue-200">${m.name}</span><span class="text-xs mt-1 font-mono bg-slate-900 px-1 rounded" id="q-${m.id}">Q: 0</span>`;
+                div.id = `m-${m.id}`;
+                container.appendChild(div);
+            });
+        }
+
+        // Update UI Values
+        document.getElementById('range-input').addEventListener('input', (e) => {
+            inputRate = e.target.value * 1000;
+            document.getElementById('val-input').innerText = e.target.value + 's';
+        });
+        document.getElementById('range-speed').addEventListener('input', (e) => {
+            speedMultiplier = parseFloat(e.target.value);
+            document.getElementById('val-speed').innerText = 'x' + speedMultiplier;
+        });
+        document.getElementById('range-defect').addEventListener('input', (e) => {
+            defectRate = e.target.value / 100;
+            document.getElementById('val-defect').innerText = e.target.value + '%';
+        });
+
+        function createWafer() {
+            const wafer = document.createElement('div');
+            wafer.className = 'wafer';
+            // Start position (Entry)
+            wafer.style.left = '0%';
+            wafer.style.top = '50%';
+            container.appendChild(wafer);
+
+            const data = {
+                el: wafer,
+                stage: -1, // -1: Entry, 0: M1, 1: M2, 2: M3
+                progress: 0,
+                isDefect: false,
+                targetX: 0,
+                targetY: 50
+            };
+            wafers.push(data);
+            totalInput++;
+            updateMetrics();
+        }
+
+        function updateSim(timestamp) {
+            if (!isRunning) return;
+
+            // Spawning Logic
+            if (timestamp - lastSpawnTime > (inputRate / speedMultiplier)) { // Input rate affected by "Speed" is debatable, but for visuals keeps it sane
+                createWafer();
+                lastSpawnTime = timestamp;
+            }
+
+            // Update Wafers
+            wafers.forEach((w, index) => {
+                if (w.stage === 3) return; // Completed
+
+                // Logic: Move to next machine if close enough
+                const currentMachine = machines[w.stage];
+                const nextMachine = machines[w.stage + 1];
+
+                // Target Logic
+                if (w.stage === -1) {
+                    // Moving to first machine
+                    w.targetX = machines[0].x + 2; // Enter left side
+                    w.targetY = 50;
+                } else {
+                    // Inside a machine or moving to next
+                    // Simple visualization logic: Move from M(n) to M(n+1)
+                }
+
+                // Movement interpolation
+                const speed = 0.5 * speedMultiplier; 
+                
+                let dx = 0;
+                let dy = 0;
+
+                if (w.stage === -1) {
+                     // Moving to Machine 0
+                     dx = machines[0].x - parseFloat(w.el.style.left || 0);
+                     if (Math.abs(dx) < 1) {
+                         w.stage = 0;
+                         machines[0].queue++;
+                     }
+                } else if (w.stage < machines.length) {
+                    // Processing inside machine
+                    w.progress += speed;
+                    // Visual Jitter inside machine
+                    w.el.style.top = (machines[w.stage].y + 10 + Math.sin(Date.now()/100)*2) + '%';
+                    w.el.style.left = (machines[w.stage].x + 10 + Math.cos(Date.now()/100)*2) + '%';
+
+                    // Check completion based on machine speed
+                    const requiredTime = (machines[w.stage].processTime / speedMultiplier) / 16; // frames approx
+                    
+                    if (w.progress > requiredTime) {
+                        // Process Finished
+                        machines[w.stage].queue--;
+                        
+                        // Defect Check (Only at last stage for simplicity in demo, or each stage)
+                        if (w.stage === 2) { // Etching stage in this demo
+                            if (Math.random() < defectRate) {
+                                w.isDefect = true;
+                                w.el.classList.add('defect');
+                                totalDefects++;
+                            }
+                        }
+
+                        w.stage++;
+                        w.progress = 0;
+
+                        if (w.stage < machines.length) {
+                            machines[w.stage].queue++;
+                        } else {
+                            // Simulation Complete for this wafer
+                            totalCompleted++;
+                            w.el.remove();
+                            delete wafers[index]; // mark for cleanup
+                        }
+                    }
+                }
+                
+                if (w.stage === -1) {
+                    const currentLeft = parseFloat(w.el.style.left || 0);
+                    w.el.style.left = (currentLeft + speed) + '%';
+                }
+            });
+
+            // Cleanup array
+            wafers = wafers.filter(w => w !== undefined);
+
+            // Update UI Indicators
+            machines.forEach(m => {
+                const el = document.getElementById(`q-${m.id}`);
+                el.innerText = `Q: ${m.queue}`;
+                // Visual bottleneck warning
+                const box = document.getElementById(`m-${m.id}`);
+                if (m.queue > 5) box.classList.add('bottleneck');
+                else box.classList.remove('bottleneck');
+            });
+
+            updateMetrics();
+            requestAnimationFrame(updateSim);
+        }
+
+        function updateMetrics() {
+            // Numbers
+            document.getElementById('metric-input').innerText = totalInput;
+            document.getElementById('metric-completed').innerText = totalCompleted;
+            document.getElementById('metric-defects').innerText = totalDefects;
+
+            // Yield
+            let yieldVal = 100;
+            if (totalCompleted > 0) {
+                yieldVal = ((totalCompleted - totalDefects) / totalCompleted * 100).toFixed(1);
+            }
+            document.getElementById('metric-yield').innerText = yieldVal + '%';
+            document.getElementById('bar-yield').style.width = yieldVal + '%';
+            
+            // Cost Logic (Mock)
+            // Base cost per wafer + penalty for defects + idle time cost
+            const cost = (totalCompleted * 10) + (totalDefects * 50);
+            
+            // Update Chart occasionally
+            if (Math.random() < 0.05) {
+                const data = costChart.data.datasets[0].data;
+                data.shift();
+                data.push(cost);
+                costChart.update();
+            }
+        }
+
+        function resetSim() {
+            wafers.forEach(w => w.el.remove());
+            wafers = [];
+            totalInput = 0;
+            totalCompleted = 0;
+            totalDefects = 0;
+            machines.forEach(m => m.queue = 0);
+            updateMetrics();
+        }
+
+        // Start
+        initMachines();
+        requestAnimationFrame(updateSim);
+
+    </script>
+</body>
+</html>
