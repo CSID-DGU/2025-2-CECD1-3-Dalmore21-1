@@ -34,132 +34,36 @@ export default function FabSim() {
     { id: 'etch', name: 'Etching', x: 70, y: 40, width: 20, height: 20, processTime: 1800, queue: 0 }
   ])
   
-  const [wafers, setWafers] = useState([])
   const [totalInput, setTotalInput] = useState(0)
   const [totalCompleted, setTotalCompleted] = useState(0)
   const [totalDefects, setTotalDefects] = useState(0)
-  const [lastSpawnTime, setLastSpawnTime] = useState(0)
-  
   const [costData, setCostData] = useState(Array(10).fill(0))
 
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    // Initialize machines in DOM
-    machines.forEach(m => {
-      const existing = document.getElementById(`m-${m.id}`)
-      if (!existing) {
-        const div = document.createElement('div')
-        div.className = 'machine'
-        div.style.left = m.x + '%'
-        div.style.top = m.y + '%'
-        div.style.width = m.width + '%'
-        div.style.height = m.height + '%'
-        div.innerHTML = `<span class="text-xs font-bold text-blue-200">${m.name}</span><span class="text-xs mt-1 font-mono bg-slate-900 px-1 rounded" id="q-${m.id}">Q: 0</span>`
-        div.id = `m-${m.id}`
-        containerRef.current.appendChild(div)
-      }
-    })
-  }, [])
+  // 원본 HTML처럼 직접 DOM 조작을 위한 ref들
+  const wafersRef = useRef([])
+  const machinesRef = useRef(machines)
+  const lastSpawnTimeRef = useRef(0)
+  const inputRateRef = useRef(1000)
+  const speedMultiplierRef = useRef(1.0)
+  const defectRateRef = useRef(0.05)
 
   useEffect(() => {
-    if (!isRunning) return
+    machinesRef.current = machines
+  }, [machines])
 
-    let animationFrameId
-    let lastTime = performance.now()
+  useEffect(() => {
+    inputRateRef.current = inputRate * 1000
+  }, [inputRate])
 
-    const updateSim = (timestamp) => {
-      if (!isRunning) return
+  useEffect(() => {
+    speedMultiplierRef.current = speedMultiplier
+  }, [speedMultiplier])
 
-      const deltaTime = timestamp - lastTime
-      lastTime = timestamp
+  useEffect(() => {
+    defectRateRef.current = defectRate / 100
+  }, [defectRate])
 
-      // Spawning Logic
-      if (timestamp - lastSpawnTime > (inputRate * 1000 / speedMultiplier)) {
-        createWafer()
-        setLastSpawnTime(timestamp)
-      }
-
-      // Update wafers
-      setWafers(prevWafers => {
-        const updatedWafers = prevWafers.map(w => {
-          if (w.stage === 3) return w
-
-          const currentMachine = machines[w.stage]
-          const speed = 0.5 * speedMultiplier
-
-          if (w.stage === -1) {
-            const currentLeft = parseFloat(w.el.style.left || 0)
-            w.el.style.left = (currentLeft + speed) + '%'
-            
-            if (Math.abs(machines[0].x - currentLeft) < 1) {
-              w.stage = 0
-              setMachines(prev => prev.map((m, idx) => 
-                idx === 0 ? { ...m, queue: m.queue + 1 } : m
-              ))
-            }
-          } else if (w.stage < machines.length) {
-            w.progress += speed
-            w.el.style.top = (machines[w.stage].y + 10 + Math.sin(Date.now()/100)*2) + '%'
-            w.el.style.left = (machines[w.stage].x + 10 + Math.cos(Date.now()/100)*2) + '%'
-
-            const requiredTime = (machines[w.stage].processTime / speedMultiplier) / 16
-
-            if (w.progress > requiredTime) {
-              setMachines(prev => prev.map((m, idx) => 
-                idx === w.stage ? { ...m, queue: Math.max(0, m.queue - 1) } : m
-              ))
-
-              if (w.stage === 2) {
-                if (Math.random() < (defectRate / 100)) {
-                  w.isDefect = true
-                  w.el.classList.add('defect')
-                  setTotalDefects(prev => prev + 1)
-                }
-              }
-
-              w.stage++
-              w.progress = 0
-
-              if (w.stage < machines.length) {
-                setMachines(prev => prev.map((m, idx) => 
-                  idx === w.stage ? { ...m, queue: m.queue + 1 } : m
-                ))
-              } else {
-                setTotalCompleted(prev => prev + 1)
-                w.el.remove()
-                return null
-              }
-            }
-          }
-
-          return w
-        }).filter(w => w !== null)
-
-        return updatedWafers
-      })
-
-      // Update UI indicators
-      machines.forEach(m => {
-        const el = document.getElementById(`q-${m.id}`)
-        if (el) el.innerText = `Q: ${m.queue}`
-        const box = document.getElementById(`m-${m.id}`)
-        if (box) {
-          if (m.queue > 5) box.classList.add('bottleneck')
-          else box.classList.remove('bottleneck')
-        }
-      })
-
-      animationFrameId = requestAnimationFrame(updateSim)
-    }
-
-    animationFrameId = requestAnimationFrame(updateSim)
-
-    return () => {
-      cancelAnimationFrame(animationFrameId)
-    }
-  }, [isRunning, inputRate, speedMultiplier, defectRate, lastSpawnTime, machines])
-
+  // 원본 HTML처럼 DOM 직접 조작
   const createWafer = () => {
     if (!containerRef.current) return
 
@@ -173,12 +77,100 @@ export default function FabSim() {
       el: wafer,
       stage: -1,
       progress: 0,
-      isDefect: false,
+      isDefect: false
     }
-
-    setWafers(prev => [...prev, data])
+    wafersRef.current.push(data)
     setTotalInput(prev => prev + 1)
   }
+
+  useEffect(() => {
+    if (!isRunning || !containerRef.current) return
+
+    let animationFrameId
+
+    const updateSim = (timestamp) => {
+      if (!isRunning) return
+
+      const currentMachines = machinesRef.current
+
+      // Spawning Logic (원본과 동일)
+      if (timestamp - lastSpawnTimeRef.current > (inputRateRef.current / speedMultiplierRef.current)) {
+        createWafer()
+        lastSpawnTimeRef.current = timestamp
+      }
+
+      // Update Wafers (원본 HTML 로직 그대로)
+      wafersRef.current.forEach((w, index) => {
+        if (w.stage === 3) return // Completed
+
+        const speed = 0.5 * speedMultiplierRef.current
+
+        if (w.stage === -1) {
+          // Moving to Machine 0 (원본과 동일)
+          const dx = currentMachines[0].x - parseFloat(w.el.style.left || 0)
+          if (Math.abs(dx) < 1) {
+            w.stage = 0
+            setMachines(prev => prev.map((m, idx) => 
+              idx === 0 ? { ...m, queue: m.queue + 1 } : m
+            ))
+          }
+        } else if (w.stage < currentMachines.length) {
+          // Processing inside machine (원본과 동일)
+          w.progress += speed
+          w.el.style.top = (currentMachines[w.stage].y + 10 + Math.sin(Date.now()/100 + w.el.id)*2) + '%'
+          w.el.style.left = (currentMachines[w.stage].x + 10 + Math.cos(Date.now()/100 + w.el.id)*2) + '%'
+
+          const requiredTime = (currentMachines[w.stage].processTime / speedMultiplierRef.current) / 16
+
+          if (w.progress > requiredTime) {
+            // Process Finished
+            setMachines(prev => prev.map((m, idx) => 
+              idx === w.stage ? { ...m, queue: Math.max(0, m.queue - 1) } : m
+            ))
+
+            // Defect Check
+            if (w.stage === 2) {
+              if (Math.random() < defectRateRef.current) {
+                w.isDefect = true
+                w.el.classList.add('defect')
+                setTotalDefects(prev => prev + 1)
+              }
+            }
+
+            w.stage++
+            w.progress = 0
+
+            if (w.stage < currentMachines.length) {
+              setMachines(prev => prev.map((m, idx) => 
+                idx === w.stage ? { ...m, queue: m.queue + 1 } : m
+              ))
+            } else {
+              // Simulation Complete
+              setTotalCompleted(prev => prev + 1)
+              w.el.remove()
+              delete wafersRef.current[index]
+            }
+          }
+        }
+
+        if (w.stage === -1) {
+          const currentLeft = parseFloat(w.el.style.left || 0)
+          w.el.style.left = (currentLeft + speed) + '%'
+        }
+      })
+
+      // Cleanup array
+      wafersRef.current = wafersRef.current.filter(w => w !== undefined)
+
+      animationFrameId = requestAnimationFrame(updateSim)
+    }
+
+    animationFrameId = requestAnimationFrame(updateSim)
+
+    return () => {
+      cancelAnimationFrame(animationFrameId)
+    }
+  }, [isRunning])
 
   useEffect(() => {
     const yieldVal = totalCompleted > 0 
@@ -198,8 +190,8 @@ export default function FabSim() {
   }, [totalCompleted, totalDefects])
 
   const resetSim = () => {
-    wafers.forEach(w => w.el?.remove())
-    setWafers([])
+    wafersRef.current.forEach(w => w.el?.remove())
+    wafersRef.current = []
     setTotalInput(0)
     setTotalCompleted(0)
     setTotalDefects(0)
@@ -330,7 +322,23 @@ export default function FabSim() {
                 <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Defective</span>
               </div>
             </div>
-            <div ref={containerRef} className="sim-canvas w-full h-full shadow-inner"></div>
+            <div ref={containerRef} className="sim-canvas w-full h-full shadow-inner relative">
+              {machines.map(m => (
+                <div
+                  key={m.id}
+                  className={`machine ${m.queue > 5 ? 'bottleneck' : ''}`}
+                  style={{
+                    left: `${m.x}%`,
+                    top: `${m.y}%`,
+                    width: `${m.width}%`,
+                    height: `${m.height}%`
+                  }}
+                >
+                  <span className="text-xs font-bold text-blue-200">{m.name}</span>
+                  <span className="text-xs mt-1 font-mono bg-slate-900 px-1 rounded">Q: {m.queue}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="h-48 grid grid-cols-3 gap-5 shrink-0">
@@ -387,24 +395,55 @@ export default function FabSim() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          transition: all 0.3s;
+          transition: all 0.3s ease;
         }
         .machine.bottleneck {
           border-color: #ef4444;
           background: rgba(239, 68, 68, 0.2);
+          animation: pulse-red 1s ease-in-out infinite;
         }
         .wafer {
-          width: 12px;
-          height: 12px;
+          width: 16px;
+          height: 16px;
           background: #4ade80;
           border-radius: 50%;
-          position: absolute;
-          transition: left 0.5s linear, top 0.5s linear;
-          box-shadow: 0 0 5px #4ade80;
+          position: absolute !important;
+          transition: left 0.1s linear, top 0.1s linear;
+          box-shadow: 0 0 8px #4ade80, 0 0 12px rgba(74, 222, 128, 0.5);
+          animation: wafer-glow 2s ease-in-out infinite;
+          z-index: 10;
+          pointer-events: none;
         }
         .wafer.defect {
           background: #ef4444;
+          box-shadow: 0 0 8px #ef4444, 0 0 12px rgba(239, 68, 68, 0.5);
+          animation: wafer-glow-red 2s ease-in-out infinite;
+        }
+        @keyframes pulse-red {
+          0%, 100% {
+            border-color: #ef4444;
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+          }
+          50% {
+            border-color: #dc2626;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
+          }
+        }
+        @keyframes wafer-glow {
+          0%, 100% {
+            box-shadow: 0 0 5px #4ade80;
+          }
+          50% {
+            box-shadow: 0 0 10px #4ade80, 0 0 15px #4ade80;
+          }
+        }
+        @keyframes wafer-glow-red {
+          0%, 100% {
           box-shadow: 0 0 5px #ef4444;
+          }
+          50% {
+            box-shadow: 0 0 10px #ef4444, 0 0 15px #ef4444;
+          }
         }
       `}</style>
     </div>
