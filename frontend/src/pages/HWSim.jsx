@@ -310,9 +310,9 @@ export default function HWSim() {
                     <span className="text-xs font-mono">{state.bw} GB/s</span>
                   </div>
                   <div
-                    className="absolute inset-0 opacity-30 bg-[linear-gradient(90deg,transparent_0%,#f59e0b_50%,transparent_100%)] bg-[length:200%_100%]"
+                    className="absolute inset-0 opacity-30 bg-[linear-gradient(90deg,transparent_0%,#f59e0b_50%,transparent_100%)] bg-[length:200%_100%] animate-flow"
                     style={{
-                      animation: `flow ${animDuration}s linear infinite`
+                      animationDuration: `${animDuration}s`
                     }}
                   />
                 </div>

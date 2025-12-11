@@ -7,6 +7,7 @@ export default function Modeling() {
   const chatContainer = useRef(null)
   const [messages, setMessages] = useState([
     {
+      id: 0,
       type: 'ai',
       text: '안녕하세요! 시뮬레이션 모델링을 도와드리겠습니다.\n어떤 시스템을 시뮬레이션하고 싶으신가요?',
       suggestions: null
@@ -15,6 +16,7 @@ export default function Modeling() {
   const [metrics, setMetrics] = useState([])
   const [targetSimulation, setTargetSimulation] = useState(null)
   const [progress, setProgress] = useState(0)
+  const [messageIdCounter, setMessageIdCounter] = useState(1)
 
   const scrollToBottom = () => {
     if (chatContainer.current) {
@@ -36,7 +38,8 @@ export default function Modeling() {
     if (!messageText) return
 
     // Add user message
-    setMessages(prev => [...prev, { type: 'user', text: messageText }])
+    setMessages(prev => [...prev, { id: messageIdCounter, type: 'user', text: messageText }])
+    setMessageIdCounter(prev => prev + 1)
     if (input) input.value = ''
     
     setTimeout(() => {
@@ -73,7 +76,8 @@ export default function Modeling() {
       ]
     }
 
-    setMessages(prev => [...prev, { type: 'ai', text: responseText, suggestions }])
+    setMessages(prev => [...prev, { id: messageIdCounter, type: 'ai', text: responseText, suggestions }])
+    setMessageIdCounter(prev => prev + 1)
   }
 
   const addToStack = (id, name, desc, icon, color) => {
@@ -142,7 +146,7 @@ export default function Modeling() {
         <main className="flex-1 flex flex-col bg-slate-950 relative">
           <div ref={chatContainer} className="flex-1 overflow-y-auto p-6 space-y-6">
             {messages.map((msg, idx) => (
-              <div key={idx} className={`flex gap-4 message-enter ${msg.type === 'user' ? 'justify-end' : ''}`}>
+              <div key={msg.id} className={`flex gap-4 message-enter ${msg.type === 'user' ? 'justify-end' : ''}`}>
                 {msg.type === 'ai' && (
                   <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
                     <i className="fa-solid fa-microchip text-blue-400"></i>
@@ -230,8 +234,8 @@ export default function Modeling() {
                 <p className="text-xs">No metrics selected yet.</p>
               </div>
             ) : (
-              metrics.map((metric) => (
-                <div key={metric.id} className="stack-item stack-enter bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg relative group overflow-hidden">
+              metrics.map((metric, idx) => (
+                <div key={metric.id} className="stack-item stack-enter bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-lg relative group overflow-hidden" style={{ animationDelay: `${idx * 0.1}s` }}>
                   <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition cursor-pointer text-slate-500 hover:text-red-400" onClick={() => removeStack(metric.id)}>
                     <i className="fa-solid fa-xmark"></i>
                   </div>
