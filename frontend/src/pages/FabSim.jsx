@@ -100,6 +100,8 @@ export default function FabSim() {
       }
 
       // Update Wafers (원본 HTML 로직 그대로)
+      const queueUpdates = {} // 큐 업데이트를 모아서 한 번에 처리
+      
       wafersRef.current.forEach((w, index) => {
         if (w.stage === 3) return // Completed
 
@@ -110,9 +112,9 @@ export default function FabSim() {
           const dx = currentMachines[0].x - parseFloat(w.el.style.left || 0)
           if (Math.abs(dx) < 1) {
             w.stage = 0
-            setMachines(prev => prev.map((m, idx) => 
-              idx === 0 ? { ...m, queue: m.queue + 1 } : m
-            ))
+            // 큐 업데이트 수집
+            if (!queueUpdates[0]) queueUpdates[0] = 0
+            queueUpdates[0] += 1
           }
         } else if (w.stage < currentMachines.length) {
           // Processing inside machine (원본과 동일)
@@ -123,10 +125,9 @@ export default function FabSim() {
           const requiredTime = (currentMachines[w.stage].processTime / speedMultiplierRef.current) / 16
 
           if (w.progress > requiredTime) {
-            // Process Finished
-            setMachines(prev => prev.map((m, idx) => 
-              idx === w.stage ? { ...m, queue: Math.max(0, m.queue - 1) } : m
-            ))
+            // Process Finished - 큐 감소
+            if (!queueUpdates[w.stage]) queueUpdates[w.stage] = 0
+            queueUpdates[w.stage] -= 1
 
             // Defect Check
             if (w.stage === 2) {
@@ -141,9 +142,9 @@ export default function FabSim() {
             w.progress = 0
 
             if (w.stage < currentMachines.length) {
-              setMachines(prev => prev.map((m, idx) => 
-                idx === w.stage ? { ...m, queue: m.queue + 1 } : m
-              ))
+              // 다음 머신 큐 증가
+              if (!queueUpdates[w.stage]) queueUpdates[w.stage] = 0
+              queueUpdates[w.stage] += 1
             } else {
               // Simulation Complete
               setTotalCompleted(prev => prev + 1)
@@ -158,6 +159,17 @@ export default function FabSim() {
           w.el.style.left = (currentLeft + speed) + '%'
         }
       })
+
+      // 큐 업데이트를 한 번에 적용
+      if (Object.keys(queueUpdates).length > 0) {
+        setMachines(prev => prev.map((m, idx) => {
+          if (queueUpdates[idx] !== undefined) {
+            const newQueue = Math.max(0, m.queue + queueUpdates[idx])
+            return { ...m, queue: newQueue }
+          }
+          return m
+        }))
+      }
 
       // Cleanup array
       wafersRef.current = wafersRef.current.filter(w => w !== undefined)
