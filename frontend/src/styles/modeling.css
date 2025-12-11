@@ -20,6 +20,7 @@
   border-left: 4px solid #3b82f6;
 }
 
+
 .stack-item:hover {
   transform: translateX(-4px);
   border-left-color: #a855f7;
